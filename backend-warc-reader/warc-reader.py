@@ -100,19 +100,32 @@ def _collection_count():
         return 0
 
 
-def _insert_metadata(id, response_headers, warc_headers):
+def _convert_tolower(headers):
+    return {k.lower(): v for k, v in headers.items()}
+
+
+def _insert_metadata(id, status, response_headers, warc_headers):
     """convert list of tuples of response header infomation
     to json object then store it into mongodb
 
     Arguments:
+        status {int} -- the status code of response
         response_headers {[tuple]} -- a list of key-value response metadata
         warc_headers {[tuple]} -- a list of key-value warc metadata
     """
     # in case there is no response header
     if len(response_headers) and len(warc_headers) != 0:
         try:
-            headers = {'id': id, 'metadata': {'response': dict(
-                response_headers), 'warc': dict(warc_headers)}}
+            # convert all key to lower case to avoid sample field with different
+            # string cases
+            response_headers = dict(response_headers)
+            warc_headers = dict(warc_headers)
+            warc_headers['status'] = status
+            response_headers = _convert_tolower(response_headers)
+            warc_headers = _convert_tolower(warc_headers)
+            headers = {'id': id, 'metadata': {'response':
+                                              response_headers,
+                                              'warc': warc_headers}}
             mongodb.metadata.insert_one(headers)
         except errors.OperationFailure as error:
             logging.error(error, exc_info=True)
@@ -168,7 +181,8 @@ def _fetch_records(index, url, maxRecords=5):
                     continue
                 # {string} the id for both metadata and content body
                 id = uuid4().hex
-                _insert_metadata(id, record.http_headers.headers,
+                _insert_metadata(id, record.http_headers.get_statuscode(),
+                                 record.http_headers.headers,
                                  record.rec_headers.headers)
                 _insert_body_content(index, id, record.content_stream())
                 maxRecords -= 1
