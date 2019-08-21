@@ -48,7 +48,7 @@ def _mongodb_connection_setup(dbName):
         logging.error(error, exc_info=True)
 
 
-def _elastic_connection_setup(index):
+def _elastic_connection_setup(indexs):
     """elasticsearch setup
     """
     global es
@@ -68,19 +68,9 @@ def _elastic_connection_setup(index):
             es.cluster.health(wait_for_status="yellow")
             connected = True
             if connected:
-                mapping = '''
-                {
-                    "mappings":{
-                        "_doc":{
-                            "properties":{
-                                "id": {"type": "text"},
-                                "content": {"type": "text"}
-                            }
-                        }
-                    }
-                }
-                '''
-                es.indices.create(index=index, ignore=400, body=mapping)
+                for index in indexs:
+                    es.indices.create(
+                        index=index['index'], ignore=400, body=index['mapping'])
                 logging.debug('Elasticsearch connected')
         except ConnectionError as error:
             time.sleep(0.1)
@@ -150,11 +140,22 @@ def _insert_body_content(index, id, stream):
         else:  # otherwise only use utf-8
             body = body.decode('utf-8', 'backslashreplace')
         serialized_body = json.dumps({'id': id, 'content': body})
-        res = es.index(index=index, body=serialized_body)
+        res = es.index(index=index+"_content", body=serialized_body)
 
     except errors.OperationFailure as error:
         logging.error(error, exc_info=True)
     except errors.ExecutionTimeout as error:
+        logging.error(error, exc_info=True)
+
+
+def _dump_metadata_to_elastic(index):
+    try:
+        metadatas = mongodb.metadata.find({})
+        for metadata in metadatas:
+            # since _id is not serilizable, it has to be removed
+            _ = metadata.pop('_id')
+            res = es.index(index=index+"_metadata", body=json.dumps(metadata))
+    except elasticsearch.SerializationError as error:
         logging.error(error, exc_info=True)
 
 
@@ -209,7 +210,9 @@ def _clean_up_elastic(index='test'):
         index {str} -- elasticsearch index (default: {'test'})
     """
     try:
-        es.indices.delete(index=index, ignore=[
+        es.indices.delete(index=index+"_content", ignore=[
+                          400, 404])
+        es.indices.delete(index=index+"_metadata", ignore=[
                           400, 404])
         logging.debug('elasticsearch index cleaned up')
     except elasticsearch.NotFoundError as error:
@@ -242,7 +245,39 @@ def query_elastic(index='test'):
 def setup_all_connections(dbName):
     _logger_level_setup()
     _mongodb_connection_setup(dbName)
-    _elastic_connection_setup(dbName)
+    indexs = [
+        {'index': dbName+'_content',
+         'mapping': '''
+            {
+                "mappings":{
+                    "_doc":{
+                        "properties":{
+                            "id": {"type": "text"},
+                            "content": {"type": "text"}
+                        }
+                    }
+                }
+            }
+         '''
+         },
+        {'index': dbName+'_metadata',
+         'mapping': '''
+            {
+                "mappings":{
+                    "_doc":{
+                        "properties":{
+                            "id": {"type": "text"},
+                            "metadata": {
+                                "dynamic": true,
+                                }
+                        }
+                    }
+                }
+            }
+         '''
+         }
+    ]
+    _elastic_connection_setup(indexs)
 
 
 def fetch_store_or_cleanup(dbName, url, maxRecordsFetch):
@@ -258,6 +293,7 @@ def fetch_store_or_cleanup(dbName, url, maxRecordsFetch):
     if maxRecordsFetch > 0:
         logging.debug('Metadata collection task is running...')
         _fetch_records(dbName, url, maxRecordsFetch)
+        _dump_metadata_to_elastic(dbName)
     # if maxRecordsFetch is negative, actioin of clean up
     # database and elasticsearch will be taken
     elif maxRecordsFetch < 0:
