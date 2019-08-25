@@ -15,6 +15,7 @@ Waiting a while to fetch and store documents, then you are ready to play with
 documents. Port 9200 is exposed as elasticsearch, you can start query by using
 `curl` or chrome extension webui [dejavu](https://chrome.google.com/webstore/detail/dejavu-elasticsearch-web/jopjeaiilkcibeohjdmejhoifenbnmlh?hl=en). Port 27017 is exposed as mongodb, you can access by `mongo` command line tool
 or ui based like [mongodb_compass](https://www.mongodb.com/products/compass).
+Port 5601 is exposed as kibana service.
 
 mongodb only store metadata. Whereas, elasticsearch only store body content, they
 can be cross referenced by id field.
