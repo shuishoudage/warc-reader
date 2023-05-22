@@ -1,4 +1,4 @@
 pymongo==3.4.0
 warcio==1.7.1
-requests==2.22.0
+requests==2.31.0
 elasticsearch>6.0.0,<=7.0.0
